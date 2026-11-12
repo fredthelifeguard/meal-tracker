@@ -13,7 +13,7 @@ const LS = {
   oauthState: 'meals.oauthState', silentTry: 'meals.silentTry', lastSync: 'meals.lastSync'
 };
 const TRACKING = [
-  { k: 'water', label: 'Water', hint: 'Glasses per day' },
+  { k: 'water', label: 'Water', hint: 'Liters per day' },
   { k: 'times', label: 'Meal times', hint: 'Show and edit when each thing was eaten' },
   { k: 'notes', label: 'Portion notes', hint: 'A note on anything you log' },
   { k: 'weight', label: 'Weekly weight', hint: 'Record a weigh-in on any day' },
@@ -538,12 +538,14 @@ function renderHealth() {
     ${headHtml()}
     ${tr.water ? `<section class="card">
       <h2>Water</h2>
-      <div class="stepper big">
-        <button type="button" data-act="water" data-d="-1" aria-label="One glass less">&minus;</button>
-        <span><b>${d.water || 0}</b> ${d.water === 1 ? 'glass' : 'glasses'}</span>
-        <button type="button" data-act="water" data-d="1" aria-label="One glass more">+</button>
+      <p class="water-total"><b>${N.fmtLiters(N.waterMl(d))}</b> L</p>
+      <div class="chips center">
+        <button type="button" class="chip goto" data-act="water" data-ml="500">+ 500 mL</button>
+        <button type="button" class="chip goto" data-act="water" data-ml="1000">+ 1 L</button>
       </div>
-      <p class="hint">One glass is about 8 oz.</p>
+      <div class="btn-row center">
+        <button type="button" class="link" data-act="water" data-ml="-250" ${N.waterMl(d) ? '' : 'disabled'}>Take off 250 mL</button>
+      </div>
     </section>` : ''}
     ${tr.weight ? `<section class="card">
       <h2>Weight</h2>
@@ -875,7 +877,7 @@ const actions = {
     const kind = ui.sheet.kind;
     remove(kind === 'entry' ? 'entries' : 'gotos', ui.sheet.id, kind === 'entry' ? 'Entry' : 'Go-to');
   },
-  water(b) { setDay({ water: Math.max(0, (dayRec(ui.date).water || 0) + Number(b.dataset.d)) }); },
+  water(b) { setDay({ waterMl: Math.max(0, N.waterMl(dayRec(ui.date)) + Number(b.dataset.ml)) }); },
   dose() { setDay({ dose: !dayRec(ui.date).dose }); },
   effect(b) {
     const cur = String(dayRec(ui.date).effects || '').split(',').map((x) => x.trim()).filter(Boolean);

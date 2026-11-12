@@ -161,12 +161,23 @@ test('a deletion wins when it is newer', () => {
   eq(N.mergeStates(local, remote).merged.entries.a.deleted, true);
 });
 
-const state = { entries, days: { [day]: { water: 6, weight: 200, dose: true, effects: 'mild nausea' }, '2026-10-01': { water: 3 } } };
+test('water is counted in milliliters and shown in liters', () => {
+  eq(N.waterMl({ waterMl: 1500 }), 1500);
+  eq(N.waterMl({}), 0); eq(N.waterMl(undefined), 0);
+  eq(N.fmtLiters(1500), '1.5'); eq(N.fmtLiters(250), '0.25'); eq(N.fmtLiters(2000), '2'); eq(N.fmtLiters(0), '0');
+  eq(N.fmtLiters(500 + 1000 + 500), '2');
+});
+test('days recorded as 8 oz glasses convert to milliliters', () => {
+  eq(N.waterMl({ water: 4 }), 948);
+  eq(N.waterMl({ water: 4, waterMl: 500 }), 500);
+});
+
+const state = { entries, days: { [day]: { waterMl: 1500, weight: 200, dose: true, effects: 'mild nausea' }, '2026-10-01': { waterMl: 750 } } };
 test('daily export has one row per day in range with the goal numbers', () => {
   const rows = N.dailyRows(state, '2026-11-11', '2026-11-12');
   eq(rows.length, 3);
   eq(rows[2].slice(0, 6), [day, 37, 46, 0, 3, 15.2]);
-  eq(rows[2].slice(6), [6, 200, 'yes', 'mild nausea']);
+  eq(rows[2].slice(6), ['1.5', 200, 'yes', 'mild nausea']);
 });
 test('food export lists each food with portion applied, inside the range only', () => {
   const rows = N.foodRows(state, day, day);

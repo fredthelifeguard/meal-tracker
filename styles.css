@@ -280,3 +280,9 @@ input::placeholder { color: var(--muted); opacity: .8; }
   #printArea .fine { font-size: 9pt; color: #444; margin-top: 8pt; }
   tr { break-inside: avoid; }
 }
+
+/* ----------------------------------------------------------------- water */
+.water-total { text-align: center; color: var(--muted); font-size: 20px; margin-bottom: 12px; }
+.water-total b { font: 700 48px/1 var(--display); color: var(--ink); letter-spacing: -.02em; margin-right: 4px; }
+.chips.center, .btn-row.center { justify-content: center; }
+.link:disabled { opacity: .4; cursor: default; }

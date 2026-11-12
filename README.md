@@ -39,7 +39,7 @@ stays in that browser.
 ## Tests
 
 The nutrition math lives in `nutrition.js` and is covered by `tests.js`. With the local server running, open
-<http://localhost:8041/tests.html>. The page title and heading show the result ("All 29 tests passed").
+<http://localhost:8041/tests.html>. The page title and heading show the result ("All 31 tests passed").
 
 ## One-time setup
 

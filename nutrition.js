@@ -186,6 +186,16 @@ export function mergeStates(local, remote) {
   return { merged: out, localChanged, remoteStale };
 }
 
+// ------------------------------------------------------------------- water
+// Water is kept in milliliters. Days recorded before the switch counted 8 oz glasses (237 mL each).
+export function waterMl(day) {
+  if (!day) return 0;
+  if (day.waterMl != null) return pos(day.waterMl);
+  return Math.round(pos(day.water) * 237);
+}
+// 1500 -> "1.5", 250 -> "0.25", 2000 -> "2"
+export function fmtLiters(ml) { return String(Math.round(pos(ml) / 10) / 100); }
+
 // ------------------------------------------------------------------ export
 export function inRange(date, from, to) { return (!from || date >= from) && (!to || date <= to); }
 
@@ -208,17 +218,17 @@ export function foodRows(state, from, to) {
 
 export function dailyRows(state, from, to) {
   const rows = [['Date', 'Breakfast protein (g)', 'Lunch protein (g)', 'Supper protein (g)', 'Snack protein (g)',
-    'Fiber (g)', 'Water (glasses)', 'Weight', 'Dose day', 'Side effects']];
+    'Fiber (g)', 'Water (L)', 'Weight', 'Dose day', 'Side effects']];
   const dates = new Set();
   for (const e of Object.values(state.entries || {})) if (!e.deleted && inRange(e.date, from, to)) dates.add(e.date);
   for (const [d, v] of Object.entries(state.days || {})) {
-    if (inRange(d, from, to) && (v.water || v.weight || v.dose || v.effects)) dates.add(d);
+    if (inRange(d, from, to) && (waterMl(v) || v.weight || v.dose || v.effects)) dates.add(d);
   }
   for (const d of [...dates].sort()) {
     const t = dayTotals(state.entries, d);
     const day = (state.days || {})[d] || {};
     rows.push([d, t.protein.breakfast, t.protein.lunch, t.protein.supper, t.protein.snack, t.fiber,
-      day.water || '', day.weight || '', day.dose ? 'yes' + (day.doseNote ? ' (' + day.doseNote + ')' : '') : '', day.effects || '']);
+      waterMl(day) ? fmtLiters(waterMl(day)) : '', day.weight || '', day.dose ? 'yes' + (day.doseNote ? ' (' + day.doseNote + ')' : '') : '', day.effects || '']);
   }
   return rows;
 }
