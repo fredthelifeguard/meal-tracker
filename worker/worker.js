@@ -140,8 +140,8 @@ const num = (v) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Number
 async function searchOFF(q) {
   const url = 'https://world.openfoodfacts.org/cgi/search.pl?action=process&json=1&search_simple=1&page_size=6' +
     '&fields=code,product_name,brands,serving_size,serving_quantity,nutriments&search_terms=' + encodeURIComponent(q);
-  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(7000) });
-  if (!res.ok) return [];
+  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(9000) });
+  if (!res.ok) throw new Error("search " + res.status);
   const data = await res.json();
   const out = [];
   for (const p of data.products || []) {
@@ -162,11 +162,14 @@ async function searchOFF(q) {
 
 async function searchUSDA(env, q, branded) {
   if (!env.USDA_API_KEY) return [];
-  const types = branded ? 'Branded' : 'Foundation,SR Legacy,Survey (FNDDS)';
-  const url = 'https://api.nal.usda.gov/fdc/v1/foods/search?pageSize=6&dataType=' + encodeURIComponent(types) +
-    '&query=' + encodeURIComponent(q) + '&api_key=' + encodeURIComponent(env.USDA_API_KEY);
-  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(7000) });
-  if (!res.ok) return [];
+  // POST, not GET: USDA intermittently answers GET searches with "400 Bad Request".
+  const res = await fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key=' + encodeURIComponent(env.USDA_API_KEY), {
+    method: 'POST',
+    headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: q, pageSize: 6, dataType: branded ? ['Branded'] : ['Foundation', 'SR Legacy', 'Survey (FNDDS)'] }),
+    signal: AbortSignal.timeout(9000)
+  });
+  if (!res.ok) throw new Error('search ' + res.status);
   const data = await res.json();
   const out = [];
   for (const f of data.foods || []) {
@@ -187,13 +190,15 @@ async function searchUSDA(env, q, branded) {
   return out;
 }
 
-const settle = (p) => p.catch(() => []);
+// The databases are sometimes slow or briefly unavailable, so each search gets a second try
+// before the food falls back to an estimate.
+const settle = (fn) => fn().catch(() => fn()).catch(() => []);
 
 async function candidatesFor(env, item) {
   const q = item.search || item.name;
   const lists = item.packaged || item.brand
-    ? await Promise.all([settle(searchOFF(q)), settle(searchUSDA(env, q, true))])
-    : await Promise.all([settle(searchUSDA(env, q, false))]);
+    ? await Promise.all([settle(() => searchOFF(q)), settle(() => searchUSDA(env, q, true))])
+    : await Promise.all([settle(() => searchUSDA(env, q, false))]);
   return lists.flat().slice(0, 10);
 }
 
@@ -244,7 +249,7 @@ async function resolveItems(env, items) {
   return items.map((it, i) => {
     const pick = picks.find((p) => p.item === i);
     const c = pick ? cands[i][pick.choice] : cands[i][0];
-    const base = { name: it.name, unit: it.unit, qty: it.qty };
+    const base = { name: it.name, unit: it.unit, qty: it.qty, matches: cands[i].length };
     if (c) {
       const g = pick && pick.grams_per_unit > 0 ? pick.grams_per_unit : (c.servingG || 100);
       const fiberKnown = c.f100 != null;
