@@ -233,6 +233,22 @@ export function dailyRows(state, from, to) {
   return rows;
 }
 
+// One block of text for pasting into a chat: the goals, then both tables as CSV.
+export function exportText(state, from, to) {
+  const s = state.settings || {};
+  return [
+    `Meal tracker export, ${from} to ${to}`,
+    `Goals: ${r1(s.proteinGoal)} g protein per meal (breakfast, lunch, supper), ${r1(s.fiberGoal)} g fiber per day`,
+    '',
+    'Daily summary (CSV)',
+    toCsv(dailyRows(state, from, to)).trim(),
+    '',
+    'Food log (CSV)',
+    toCsv(foodRows(state, from, to)).trim(),
+    ''
+  ].join('\n');
+}
+
 export function toCsv(rows) {
   const cell = (v) => {
     const s = String(v == null ? '' : v);

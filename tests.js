@@ -185,6 +185,14 @@ test('food export lists each food with portion applied, inside the range only', 
   const lunch = rows.find((r) => r[1] === 'Lunch');
   eq([lunch[5], lunch[6]], ['2 cup', 46]);
 });
+test('the text for pasting into a chat carries the goals and both tables for the range', () => {
+  const text = N.exportText({ ...state, settings: { proteinGoal: 40, fiberGoal: 35 } }, day, day);
+  const lines = text.split(/\r?\n/);
+  eq(lines[0], `Meal tracker export, ${day} to ${day}`);
+  eq(lines[1].includes('40 g protein per meal') && lines[1].includes('35 g fiber per day'), true);
+  eq(lines.filter((l) => l.startsWith(day + ',')).length, 1 + 5, 'one daily row plus five foods');
+  eq(text.includes('2026-11-11'), false, 'nothing outside the range');
+});
 test('CSV quotes commas, quotes and line breaks', () => {
   eq(N.toCsv([['a', 'b,c', 'say "hi"', 'x\ny']]), 'a,"b,c","say ""hi""","x\ny"\r\n');
 });

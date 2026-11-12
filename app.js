@@ -612,6 +612,8 @@ function renderSettings() {
         <label class="field"><span>To</span><input type="date" data-exp="exportTo" value="${ui.exportTo}"></label>
       </div>
       <div class="btn-col">
+        <button type="button" class="btn primary" data-act="copyForClaude">Send to Claude</button>
+        <p class="hint">Copies these dates as CSV text, ready to paste into a Claude chat.</p>
         <button type="button" class="btn" data-act="print">Print summary</button>
         <button type="button" class="btn" data-act="csvDaily">Daily summary (CSV)</button>
         <button type="button" class="btn" data-act="csvFood">Full food log (CSV)</button>
@@ -895,6 +897,23 @@ const actions = {
       const r = await api('/health');
       set(r.claude && r.usda ? 'Connected.' : `Connected, but the ${!r.claude ? 'Claude' : 'USDA'} key is missing on the server.`);
     } catch (e) { set(e.message); }
+  },
+  async copyForClaude() {
+    if (!rangeOk()) return;
+    const text = N.exportText(state, ui.exportFrom, ui.exportTo);
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      // Older browsers: copy through a hidden text box instead.
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) { toast('Copying is blocked in this browser. Use a CSV button instead.'); return; }
+    }
+    toast('Copied. Paste it into a Claude chat.', { label: 'Open Claude', fn: () => window.open('https://claude.ai/new', '_blank', 'noopener') });
   },
   print() { if (rangeOk()) printSummary(); },
   csvDaily() { if (rangeOk()) share(`meal-summary-${ui.exportFrom}-to-${ui.exportTo}.csv`, N.toCsv(N.dailyRows(state, ui.exportFrom, ui.exportTo)), 'text/csv'); },

@@ -39,7 +39,7 @@ stays in that browser.
 ## Tests
 
 The nutrition math lives in `nutrition.js` and is covered by `tests.js`. With the local server running, open
-<http://localhost:8041/tests.html>. The page title and heading show the result ("All 31 tests passed").
+<http://localhost:8041/tests.html>. The page title and heading show the result ("All 32 tests passed").
 
 ## One-time setup
 
@@ -97,6 +97,7 @@ Open the published address in Safari, tap **Share > Add to Home Screen**, then o
 - **Also track**: water, meal times, portion notes, weight, medication dose day and side effects are off by
   default. Turn them on in Settings and they appear on a separate Health tab.
 - **Export**: Settings > Export for appointments gives a printable summary or CSV files for a date range.
+  **Send to Claude** copies the same data as text, to paste into a Claude chat.
 
 ## Files
 
