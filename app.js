@@ -34,12 +34,14 @@ const ls = {
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const g = (n) => String(N.r1(n));
+const cal = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+const totals = (entry) => N.entryTotals(entry, state.foods);
 const today = () => N.ymd(new Date());
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 
 function defaultSettings() {
   return {
-    proteinGoal: 40, fiberGoal: 35, theme: 'auto', lookupKey: '',
+    proteinGoal: 40, fiberGoal: 35, calorieGoal: 1600, grainGoal: 2, theme: 'auto', lookupKey: '',
     track: { water: false, times: false, notes: false, weight: false, dose: false, effects: false }, t: 0
   };
 }
@@ -145,7 +147,8 @@ async function api(path, body) {
 function itemFromFood(key, food, qty) {
   return {
     key, name: food.name, unit: food.unit, qty,
-    p1: food.p1, f1: food.f1, k1: food.k1 || 0, source: food.source, estimate: !!food.estimate
+    p1: food.p1, f1: food.f1, k1: food.k1 || 0, source: food.source, estimate: !!food.estimate,
+    ...(food.w1 != null ? { w1: food.w1 } : {})
   };
 }
 
@@ -172,12 +175,45 @@ async function lookupText(text) {
       const i = missing[j];
       put('foods', keys[i], {
         name: r.name || parsed[i].name, unit: r.unit || parsed[i].unit, p1: r.p1, f1: r.f1, k1: r.k1, g1: r.g1,
-        source: r.source, sourceName: r.sourceName, estimate: r.estimate
+        w1: r.w1, source: r.source, sourceName: r.sourceName, estimate: r.estimate
       });
     });
   }
   put('foods', tk, { parts: parsed.map((p, i) => ({ key: keys[i], qty: p.qty })) });
   return parsed.map((p, i) => itemFromFood(keys[i], state.foods[keys[i]], p.qty));
+}
+
+// Foods saved before whole grains were tracked have no whole-grain number. Fetch those quietly,
+// a batch at a time, so go-tos and recent foods count toward the badge without being retyped.
+let grainBusy = false;
+let grainRetryAt = 0;
+const grainSkip = new Set();
+async function fillGrains() {
+  if (grainBusy || Date.now() < grainRetryAt || !CFG.lookupUrl || !lookupKey() || !navigator.onLine) return;
+  grainBusy = true;
+  try {
+    for (;;) {
+      const keys = Object.keys(state.foods).filter((k) => {
+        const f = state.foods[k];
+        return k.startsWith('f:') && f && !f.deleted && f.name && f.w1 == null && !grainSkip.has(k);
+      }).slice(0, 30);
+      if (!keys.length) break;
+      const res = await api('/grains', { items: keys.map((k) => ({ name: state.foods[k].name, unit: state.foods[k].unit, g1: state.foods[k].g1 })) });
+      keys.forEach((k, i) => {
+        const w = res.items && res.items[i] ? res.items[i].w1 : null;
+        const f = state.foods[k];
+        if (w == null || !f || f.deleted) { grainSkip.add(k); return; }
+        put('foods', k, { ...f, w1: w });
+      });
+      // Redraw, unless that would wipe something half typed.
+      const q = $('.add-form input');
+      if (ui.tab === 'today' && !$('#sheet').open && (!q || (!q.value && document.activeElement !== q))) render();
+    }
+  } catch (e) {
+    grainRetryAt = Date.now() + 10 * 60 * 1000;   // offline, or the lookup service has not been updated yet
+  } finally {
+    grainBusy = false;
+  }
 }
 
 // ----------------------------------------------------------------- logging
@@ -213,7 +249,7 @@ async function addFromText(text) {
   } catch (e) {
     ui.busy = '';
     // Still log it, so nothing is lost; the numbers can be typed in by hand.
-    const id = logEntry(text, [{ name: text, unit: 'serving', qty: 1, p1: 0, f1: 0, k1: 0, source: 'manual', estimate: false }]);
+    const id = logEntry(text, [{ name: text, unit: 'serving', qty: 1, p1: 0, f1: 0, k1: 0, w1: 0, source: 'manual', estimate: false }]);
     openSheet('entry', id);
     toast(e.message + ' Enter the numbers yourself for now.');
   }
@@ -442,30 +478,54 @@ function plateHtml(meal, value, goal) {
     </button>`;
 }
 
-function rowNums(t) { return `<b>${g(t.protein)}g</b> protein, <b>${g(t.fiber)}g</b> fiber`; }
+// The whole-grain badge beside the plates. It lights up once the day's servings reach the goal.
+function grainBadgeHtml(value, goal) {
+  const met = goal > 0 && value >= goal;
+  return `
+    <div class="grain${met ? ' met' : ''}" role="img"
+      aria-label="Whole grains: ${N.fmtQty(value)} of ${N.fmtQty(goal)} servings${met ? ', goal met' : ''}">
+      <span class="grain-dish">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 22.5V10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <ellipse cx="12" cy="4.8" rx="2.1" ry="3.5"/>
+          <ellipse cx="8.1" cy="9.3" rx="1.9" ry="3.3" transform="rotate(-38 8.1 9.3)"/>
+          <ellipse cx="15.9" cy="9.3" rx="1.9" ry="3.3" transform="rotate(38 15.9 9.3)"/>
+          <ellipse cx="8.1" cy="14.6" rx="1.9" ry="3.3" transform="rotate(-38 8.1 14.6)"/>
+          <ellipse cx="15.9" cy="14.6" rx="1.9" ry="3.3" transform="rotate(38 15.9 14.6)"/>
+        </svg>
+        <span class="grain-num">${N.fmtQty(value)}</span>
+        <span class="grain-of">of ${N.fmtQty(goal)}</span>
+      </span>
+      <span class="grain-name">Grains</span>
+    </div>`;
+}
+
+function rowNums(t) { return `<b>${g(t.protein)}g</b> protein, <b>${g(t.fiber)}g</b> fiber, <b>${cal(t.kcal)}</b> cal`; }
 function estTag(items) {
   return (items || []).some((i) => i.estimate && !i.skip) ? '<span class="tag">estimate</span>' : '';
 }
+function grainTag(t) { return t.grains > 0 ? '<span class="tag grain">whole grain</span>' : ''; }
 
 function renderToday() {
   const s = state.settings;
-  const t = N.dayTotals(state.entries, ui.date);
+  const t = N.dayTotals(state.entries, ui.date, state.foods);
   const fiberMet = t.fiber >= s.fiberGoal && s.fiberGoal > 0;
+  const calMet = t.kcal >= s.calorieGoal && s.calorieGoal > 0;
   const gotos = gotoList().slice(0, 12);
   const recents = recentFoods();
   const groups = N.SLOTS.map((slot) => {
     const list = entriesOn(ui.date, slot);
     if (!list.length) return '';
-    const fiber = list.reduce((a, e) => a + N.entryTotals(e).fiber, 0);
+    const sum = list.map(totals).reduce((a, x) => ({ fiber: a.fiber + x.fiber, kcal: a.kcal + x.kcal }), { fiber: 0, kcal: 0 });
     return `
       <section class="group">
         <div class="group-head">
           <h2>${N.SLOT_LABEL[slot]}</h2>
-          <span class="group-sum">${g(t.protein[slot])}g protein, ${g(fiber)}g fiber</span>
+          <span class="group-sum">${g(t.protein[slot])}g protein, ${g(sum.fiber)}g fiber, ${cal(sum.kcal)} cal</span>
           <button type="button" class="link" data-act="saveMeal" data-meal="${slot}">Save as go-to</button>
         </div>
         <ul class="rows">${list.map((e) => {
-          const et = N.entryTotals(e);
+          const et = totals(e);
           const bits = [];
           if (e.portion === 0.5) bits.push('half portion');
           if (e.portion === 2) bits.push('double portion');
@@ -474,7 +534,7 @@ function renderToday() {
           if (s.track.times && e.time) bits.push(e.time);
           if (s.track.notes && e.note) bits.push(e.note);
           return `<li><button type="button" class="row" data-act="entry" data-id="${e.id}">
-            <span class="row-main"><span class="row-name">${esc(e.name)}</span>${estTag(e.items)}</span>
+            <span class="row-main"><span class="row-name">${esc(e.name)}</span>${estTag(e.items)}${grainTag(et)}</span>
             ${bits.length ? `<span class="row-sub">${esc(bits.join(', '))}</span>` : ''}
             <span class="row-nums">${rowNums(et)}</span>
           </button></li>`;
@@ -484,12 +544,19 @@ function renderToday() {
 
   $('#view').innerHTML = `
     ${headHtml()}
-    <section class="plates" aria-label="Protein per meal">
-      ${N.MEALS.map((m) => plateHtml(m, t.protein[m], s.proteinGoal)).join('')}
-    </section>
+    <div class="meals">
+      <section class="plates" aria-label="Protein per meal">
+        ${N.MEALS.map((m) => plateHtml(m, t.protein[m], s.proteinGoal)).join('')}
+      </section>
+      ${grainBadgeHtml(t.grains, s.grainGoal)}
+    </div>
     <section class="fiber${fiberMet ? ' met' : ''}" aria-label="Fiber for the day">
       <div class="fiber-line"><span class="fiber-name">Fiber</span><span class="fiber-num"><b>${g(t.fiber)}</b> of ${g(s.fiberGoal)}g</span></div>
       <div class="bar"><span style="width:${(N.progress(t.fiber, s.fiberGoal) * 100).toFixed(1)}%"></span></div>
+    </section>
+    <section class="fiber${calMet ? ' met' : ''}" aria-label="Calories for the day">
+      <div class="fiber-line"><span class="fiber-name">Calories</span><span class="fiber-num"><b>${cal(t.kcal)}</b> of ${cal(s.calorieGoal)}</span></div>
+      <div class="bar"><span style="width:${(N.progress(t.kcal, s.calorieGoal) * 100).toFixed(1)}%"></span></div>
     </section>
 
     <section class="add">
@@ -516,9 +583,9 @@ function renderGotos() {
     <header class="top plain"><div class="top-title"><h1>Go-tos</h1><p>Meals you eat on rotation. Tap one on Today to log it.</p></div></header>
     <button type="button" class="btn primary wide" data-act="newGoto">New go-to</button>
     ${list.length ? `<ul class="rows spaced">${list.map((x) => {
-      const t = N.entryTotals({ items: x.items });
+      const t = totals({ items: x.items });
       return `<li><button type="button" class="row" data-act="goto" data-id="${x.id}">
-        <span class="row-main"><span class="row-name">${esc(x.name)}</span>${estTag(x.items)}</span>
+        <span class="row-main"><span class="row-name">${esc(x.name)}</span>${estTag(x.items)}${grainTag(t)}</span>
         <span class="row-sub">${esc(x.items.map((i) => i.name).join(', ') || 'No ingredients yet')}</span>
         <span class="row-nums">${rowNums(t)}</span>
       </button></li>`;
@@ -591,8 +658,11 @@ function renderSettings() {
     <header class="top plain"><div class="top-title"><h1>Settings</h1></div></header>
     <section class="card">
       <h2>Goals</h2>
-      <label class="field inline"><span class="grow">Protein per meal</span><input type="number" inputmode="decimal" min="1" max="300" data-set="proteinGoal" value="${g(s.proteinGoal)}"><span>g</span></label>
-      <label class="field inline"><span class="grow">Fiber per day</span><input type="number" inputmode="decimal" min="1" max="200" data-set="fiberGoal" value="${g(s.fiberGoal)}"><span>g</span></label>
+      <label class="field inline"><span class="grow">Protein per meal</span><input type="number" inputmode="decimal" min="1" max="300" data-set="proteinGoal" value="${g(s.proteinGoal)}"><span class="unit">g</span></label>
+      <label class="field inline"><span class="grow">Fiber per day</span><input type="number" inputmode="decimal" min="1" max="200" data-set="fiberGoal" value="${g(s.fiberGoal)}"><span class="unit">g</span></label>
+      <label class="field inline"><span class="grow">Calories per day</span><input type="number" inputmode="numeric" min="1" max="10000" data-set="calorieGoal" value="${g(s.calorieGoal)}"><span class="unit">cal</span></label>
+      <label class="field inline"><span class="grow">Whole grains per day</span><input type="number" inputmode="decimal" min="0.5" max="20" step="0.5" data-set="grainGoal" value="${g(s.grainGoal)}"><span class="unit"></span></label>
+      <p class="hint goal-hint">Whole grains are counted in servings. One serving is about a slice of whole wheat bread, or half a cup of cooked oatmeal or brown rice.</p>
     </section>
     <section class="card">
       <h2>Appearance</h2>
@@ -672,7 +742,7 @@ function stepFor(unit) { return /^(g|gram|ml)$/.test(unit) ? 10 : /^(oz|ounce)$/
 
 function itemHtml(it, i, rec) {
   const isEntry = ui.sheet.kind === 'entry';
-  const t = N.itemTotals({ ...it, skip: false });
+  const t = N.itemTotals({ ...it, skip: false }, 1, state.foods);
   const src = it.edited ? 'Corrected by you' : (SOURCE_LABEL[it.source] || '');
   if (ui.sheet.swap === i) {
     return `<li class="item"><form class="add-form" data-form="swap" data-i="${i}">
@@ -693,6 +763,10 @@ function itemHtml(it, i, rec) {
       </div>
       <label class="num"><span>Protein</span><input type="number" inputmode="decimal" min="0" step="0.1" data-item="${i}" data-f="protein" value="${g(t.protein)}"><i>g</i></label>
       <label class="num"><span>Fiber</span><input type="number" inputmode="decimal" min="0" step="0.1" data-item="${i}" data-f="fiber" value="${g(t.fiber)}"><i>g</i></label>
+    </div>
+    <div class="item-grid pair">
+      <label class="num cal"><span>Calories</span><input type="number" inputmode="numeric" min="0" step="1" data-item="${i}" data-f="kcal" value="${Math.round(t.kcal)}"><i>cal</i></label>
+      <label class="num plain"><span>Whole grain servings</span><input type="number" inputmode="decimal" min="0" step="0.25" data-item="${i}" data-f="grains" value="${Math.round(t.grains * 100) / 100}"></label>
     </div>`}
     <div class="item-acts">
       ${isEntry && (rec.items.length > 1 || it.skip) ? `<button type="button" class="link" data-act="skip" data-i="${i}">${it.skip ? 'Put back' : 'Leave out'}</button>` : ''}
@@ -707,7 +781,7 @@ function renderSheet() {
   const d = $('#sheet');
   if (!rec) { if (d.open) d.close(); return; }
   const isEntry = ui.sheet.kind === 'entry';
-  const t = N.entryTotals(isEntry ? rec : { items: rec.items });
+  const t = totals(isEntry ? rec : { items: rec.items });
   const tr = state.settings.track;
   const keepScroll = d.scrollTop;
   d.innerHTML = `
@@ -716,7 +790,7 @@ function renderSheet() {
         : `<label class="field grow"><span>Name</span><input type="text" data-rec="name" value="${esc(rec.name)}" aria-label="Go-to name"></label>`}
       <button type="button" class="btn primary" data-act="close">Done</button>
     </div>
-    <div class="sheet-totals"><span><b>${g(t.protein)}g</b> protein</span><span><b>${g(t.fiber)}g</b> fiber</span></div>
+    <div class="sheet-totals"><span><b>${g(t.protein)}g</b> protein</span><span><b>${g(t.fiber)}g</b> fiber</span><span><b>${cal(t.kcal)}</b> cal</span></div>
 
     ${isEntry ? `
       <h3>Portion</h3>
@@ -754,7 +828,7 @@ async function sheetLookup(text, apply) {
   let items;
   try { items = await lookupText(text); }
   catch (e) {
-    items = [{ name: text, unit: 'serving', qty: 1, p1: 0, f1: 0, k1: 0, source: 'manual', estimate: false }];
+    items = [{ name: text, unit: 'serving', qty: 1, p1: 0, f1: 0, k1: 0, w1: 0, source: 'manual', estimate: false }];
     toast(e.message + ' Enter the numbers yourself for now.');
   }
   ctx.busy = false;
@@ -791,7 +865,7 @@ function printSummary() {
   const daily = N.dailyRows(state, ui.exportFrom, ui.exportTo);
   const food = N.foodRows(state, ui.exportFrom, ui.exportTo);
   const tr = s.track;
-  const keep = [0, 1, 2, 3, 5].concat(tr.water ? [6] : [], tr.weight ? [7] : [], tr.dose ? [8] : [], tr.effects ? [9] : []);
+  const keep = [0, 1, 2, 3, 5, 6, 7].concat(tr.water ? [8] : [], tr.weight ? [9] : [], tr.dose ? [10] : [], tr.effects ? [11] : []);
   const table = (rows, cols) => `<table><thead><tr>${cols.map((c) => `<th>${esc(rows[0][c])}</th>`).join('')}</tr></thead>
     <tbody>${rows.slice(1).map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const days = daily.length - 1;
@@ -799,10 +873,12 @@ function printSummary() {
   $('#printArea').innerHTML = `
     <h1>Meal summary</h1>
     <p>${esc(dateSub(ui.exportFrom))} to ${esc(dateSub(ui.exportTo))}, ${days} day${days === 1 ? '' : 's'} with entries.</p>
-    <p>Goals: ${g(s.proteinGoal)} g protein per meal, ${g(s.fiberGoal)} g fiber per day.
-       Averages on logged days: breakfast ${avg(1)} g, lunch ${avg(2)} g, supper ${avg(3)} g protein; fiber ${avg(5)} g.</p>
+    <p>Goals: ${g(s.proteinGoal)} g protein per meal, ${g(s.fiberGoal)} g fiber per day, ${cal(s.calorieGoal)} calories per day,
+       ${g(s.grainGoal)} servings of whole grains per day.
+       Averages on logged days: breakfast ${avg(1)} g, lunch ${avg(2)} g, supper ${avg(3)} g protein; fiber ${avg(5)} g;
+       ${cal(avg(6))} calories; ${avg(7)} servings of whole grains.</p>
     <h2>Each day</h2>${days ? table(daily, keep) : '<p>No entries in this range.</p>'}
-    ${food.length > 1 ? `<h2>Food log</h2>${table(food, [0, 1].concat(tr.times ? [2] : [], [4, 5, 6, 7, 10], tr.notes ? [11] : []))}` : ''}
+    ${food.length > 1 ? `<h2>Food log</h2>${table(food, [0, 1].concat(tr.times ? [2] : [], [4, 5, 6, 7, 8, 11], tr.notes ? [12] : []))}` : ''}
     <p class="fine">Entries marked "yes" under Estimate are estimates rather than database values.</p>`;
   window.print();
 }
@@ -977,7 +1053,10 @@ document.addEventListener('change', (ev) => {
     // Remember the correction, so this food comes back right next time.
     const it = rec.items[i];
     const food = it.key && state.foods[it.key];
-    if (food && !food.deleted) put('foods', it.key, { ...food, p1: it.p1, f1: it.f1, estimate: false, edited: true });
+    const k = N.ITEM_FIELD[d.f];
+    if (food && !food.deleted && k) {
+      put('foods', it.key, { ...food, [k]: it[k], estimate: k === 'p1' || k === 'f1' ? false : food.estimate, edited: true });
+    }
     saveSheetRec(rec);
   }
 });
@@ -995,6 +1074,7 @@ document.addEventListener('visibilitychange', () => {
   }
   ui.lastSeen = today();
   scheduleSync(800);
+  fillGrains();
 });
 
 // -------------------------------------------------------------------- boot
@@ -1010,5 +1090,6 @@ document.addEventListener('visibilitychange', () => {
   // Renew a lapsed Google sign-in quietly, but only at launch so it never interrupts logging.
   const lastTry = Number(ls.get(LS.silentTry)) || 0;
   if (clientId() && ls.get(LS.connected) && !token() && navigator.onLine && Date.now() - lastTry > 10 * 60 * 1000) { startAuth(true); return; }
-  sync();
+  await sync();     // first, so whole-grain numbers another device already fetched are not fetched again
+  fillGrains();
 })();

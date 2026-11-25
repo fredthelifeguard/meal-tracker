@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
-const CACHE = 'meal-tracker-shell-v3';
+const CACHE = 'meal-tracker-shell-v4';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'nutrition.js', 'config.js',
   'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'

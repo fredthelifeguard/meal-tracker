@@ -9,38 +9,52 @@ export const COLLECTIONS = ['entries', 'gotos', 'foods', 'days'];
 export const r1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 const pos = (n) => (Number(n) > 0 ? Number(n) : 0);
 
-// An item is one food: qty units, each with p1 g protein and f1 g fiber.
-export function itemTotals(item, portion = 1) {
-  if (!item || item.skip) return { protein: 0, fiber: 0, kcal: 0 };
+// Whole-grain servings in one unit of an item. Things logged before whole grains were tracked
+// carry no number of their own, so they borrow it from the saved food they came from.
+export function grainsPerUnit(item, foods) {
+  if (!item) return 0;
+  if (item.w1 != null) return pos(item.w1);
+  const food = foods && item.key ? foods[item.key] : null;
+  return food && !food.deleted ? pos(food.w1) : 0;
+}
+
+// An item is one food: qty units, each with p1 g protein, f1 g fiber, k1 calories and
+// w1 servings of whole grains. `foods` is the saved-food list, only needed for whole grains.
+export function itemTotals(item, portion = 1, foods) {
+  if (!item || item.skip) return { protein: 0, fiber: 0, kcal: 0, grains: 0 };
   const q = pos(item.qty) * pos(portion);
-  return { protein: q * pos(item.p1), fiber: q * pos(item.f1), kcal: q * pos(item.k1) };
+  return { protein: q * pos(item.p1), fiber: q * pos(item.f1), kcal: q * pos(item.k1), grains: q * grainsPerUnit(item, foods) };
 }
 
 // An entry is one logged thing: a list of items times a portion (0.5, 1, 2...).
-export function entryTotals(entry) {
-  const t = { protein: 0, fiber: 0, kcal: 0 };
+export function entryTotals(entry, foods) {
+  const t = { protein: 0, fiber: 0, kcal: 0, grains: 0 };
   if (!entry || entry.deleted) return t;
   const portion = entry.portion == null ? 1 : entry.portion;
   for (const it of entry.items || []) {
-    const x = itemTotals(it, portion);
-    t.protein += x.protein; t.fiber += x.fiber; t.kcal += x.kcal;
+    const x = itemTotals(it, portion, foods);
+    t.protein += x.protein; t.fiber += x.fiber; t.kcal += x.kcal; t.grains += x.grains;
   }
   return t;
 }
 
-// Protein per slot and fiber for the whole day (snacks included).
-export function dayTotals(entries, date) {
-  const out = { fiber: 0, protein: { breakfast: 0, lunch: 0, supper: 0, snack: 0 }, count: 0 };
+// Protein per slot, plus fiber, calories and whole grains for the whole day (snacks included).
+export function dayTotals(entries, date, foods) {
+  const out = { fiber: 0, kcal: 0, grains: 0, protein: { breakfast: 0, lunch: 0, supper: 0, snack: 0 }, count: 0 };
   for (const e of Array.isArray(entries) ? entries : Object.values(entries || {})) {
     if (!e || e.deleted || e.date !== date) continue;
-    const t = entryTotals(e);
+    const t = entryTotals(e, foods);
     const slot = SLOTS.includes(e.meal) ? e.meal : 'snack';
     out.protein[slot] += t.protein;
     out.fiber += t.fiber;
+    out.kcal += t.kcal;
+    out.grains += t.grains;
     out.count += 1;
   }
   for (const s of SLOTS) out.protein[s] = r1(out.protein[s]);
   out.fiber = r1(out.fiber);
+  out.kcal = Math.round(out.kcal);
+  out.grains = Math.round(out.grains * 4) / 4;   // servings are estimates, so count in quarters
   return out;
 }
 
@@ -51,10 +65,13 @@ export function progress(value, goal) {
 }
 
 // Hand correction: the person types the total for the amount shown.
+export const ITEM_FIELD = { protein: 'p1', fiber: 'f1', kcal: 'k1', grains: 'w1' };
 export function setItemTotal(item, field, total) {
   const q = pos(item.qty) || 1;
-  const key = field === 'protein' ? 'p1' : 'f1';
-  return { ...item, [key]: pos(total) / q, estimate: false, edited: true };
+  const key = ITEM_FIELD[field] || 'f1';
+  const next = { ...item, [key]: pos(total) / q, edited: true };
+  if (key === 'p1' || key === 'f1') next.estimate = false;   // the "estimate" tag is about protein and fiber
+  return next;
 }
 
 export function mealForHour(hour) {
@@ -200,17 +217,18 @@ export function fmtLiters(ml) { return String(Math.round(pos(ml) / 10) / 100); }
 export function inRange(date, from, to) { return (!from || date >= from) && (!to || date <= to); }
 
 export function foodRows(state, from, to) {
-  const rows = [['Date', 'Meal', 'Time', 'Logged as', 'Food', 'Amount', 'Protein (g)', 'Fiber (g)', 'Calories', 'Source', 'Estimate', 'Note']];
+  const rows = [['Date', 'Meal', 'Time', 'Logged as', 'Food', 'Amount', 'Protein (g)', 'Fiber (g)', 'Calories',
+    'Whole grains (servings)', 'Source', 'Estimate', 'Note']];
   const list = Object.values(state.entries || {}).filter((e) => !e.deleted && inRange(e.date, from, to))
     .sort((a, b) => (a.date + SLOTS.indexOf(a.meal) + (a.time || '')).localeCompare(b.date + SLOTS.indexOf(b.meal) + (b.time || '')));
   for (const e of list) {
     const portion = e.portion == null ? 1 : e.portion;
     for (const it of e.items || []) {
       if (it.skip) continue;
-      const t = itemTotals(it, portion);
+      const t = itemTotals(it, portion, state.foods);
       rows.push([e.date, SLOT_LABEL[e.meal] || e.meal, e.time || '', e.name || '', it.name,
         fmtAmount({ ...it, qty: pos(it.qty) * portion }), r1(t.protein), r1(t.fiber), Math.round(t.kcal),
-        it.source || '', it.estimate ? 'yes' : '', e.note || '']);
+        Math.round(t.grains * 100) / 100, it.source || '', it.estimate ? 'yes' : '', e.note || '']);
     }
   }
   return rows;
@@ -218,16 +236,16 @@ export function foodRows(state, from, to) {
 
 export function dailyRows(state, from, to) {
   const rows = [['Date', 'Breakfast protein (g)', 'Lunch protein (g)', 'Supper protein (g)', 'Snack protein (g)',
-    'Fiber (g)', 'Water (L)', 'Weight', 'Dose day', 'Side effects']];
+    'Fiber (g)', 'Calories', 'Whole grains (servings)', 'Water (L)', 'Weight', 'Dose day', 'Side effects']];
   const dates = new Set();
   for (const e of Object.values(state.entries || {})) if (!e.deleted && inRange(e.date, from, to)) dates.add(e.date);
   for (const [d, v] of Object.entries(state.days || {})) {
     if (inRange(d, from, to) && (waterMl(v) || v.weight || v.dose || v.effects)) dates.add(d);
   }
   for (const d of [...dates].sort()) {
-    const t = dayTotals(state.entries, d);
+    const t = dayTotals(state.entries, d, state.foods);
     const day = (state.days || {})[d] || {};
-    rows.push([d, t.protein.breakfast, t.protein.lunch, t.protein.supper, t.protein.snack, t.fiber,
+    rows.push([d, t.protein.breakfast, t.protein.lunch, t.protein.supper, t.protein.snack, t.fiber, t.kcal, t.grains,
       waterMl(day) ? fmtLiters(waterMl(day)) : '', day.weight || '', day.dose ? 'yes' + (day.doseNote ? ' (' + day.doseNote + ')' : '') : '', day.effects || '']);
   }
   return rows;
@@ -236,9 +254,12 @@ export function dailyRows(state, from, to) {
 // One block of text for pasting into a chat: the goals, then both tables as CSV.
 export function exportText(state, from, to) {
   const s = state.settings || {};
+  const goals = [`${r1(s.proteinGoal)} g protein per meal (breakfast, lunch, supper)`, `${r1(s.fiberGoal)} g fiber per day`];
+  if (s.calorieGoal > 0) goals.push(`${Math.round(s.calorieGoal)} calories per day`);
+  if (s.grainGoal > 0) goals.push(`${r1(s.grainGoal)} servings of whole grains per day`);
   return [
     `Meal tracker export, ${from} to ${to}`,
-    `Goals: ${r1(s.proteinGoal)} g protein per meal (breakfast, lunch, supper), ${r1(s.fiberGoal)} g fiber per day`,
+    `Goals: ${goals.join(', ')}`,
     '',
     'Daily summary (CSV)',
     toCsv(dailyRows(state, from, to)).trim(),

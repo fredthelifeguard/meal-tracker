@@ -25,11 +25,11 @@ test('item totals scale with portion', () => {
   near(N.itemTotals(biscuit, 2).fiber, 2);
 });
 test('a left-out ingredient counts for nothing', () => {
-  eq(N.itemTotals({ ...chia, skip: true }), { protein: 0, fiber: 0, kcal: 0 });
+  eq(N.itemTotals({ ...chia, skip: true }), { protein: 0, fiber: 0, kcal: 0, grains: 0 });
 });
 test('missing or bad numbers count as zero, never NaN', () => {
-  eq(N.itemTotals({ qty: 'x', p1: undefined, f1: null }), { protein: 0, fiber: 0, kcal: 0 });
-  eq(N.itemTotals(null), { protein: 0, fiber: 0, kcal: 0 });
+  eq(N.itemTotals({ qty: 'x', p1: undefined, f1: null }), { protein: 0, fiber: 0, kcal: 0, grains: 0 });
+  eq(N.itemTotals(null), { protein: 0, fiber: 0, kcal: 0, grains: 0 });
   near(N.itemTotals({ qty: 1, p1: -4, f1: 2 }).protein, 0);
 });
 test('entry totals sum ingredients', () => {
@@ -80,6 +80,45 @@ test('totals are rounded to one decimal without drift', () => {
   eq(N.dayTotals(many, day).fiber, 1);
 });
 
+test('calories are a running total for the day, snacks included', () => {
+  eq(N.dayTotals(entries, day).kcal, 910);                // 270 + 340 + 300, and a snack with no calories
+  eq(N.dayTotals(entries, '2026-11-11').kcal, 150);
+  eq(N.dayTotals(entries, '2026-01-01').kcal, 0);
+  eq(N.dayTotals([{ date: day, meal: 'snack', items: [{ qty: 3, k1: 33.4 }] }], day).kcal, 100, 'whole calories');
+});
+
+const toast = { name: 'whole wheat toast', qty: 2, unit: 'slice', p1: 4, f1: 2, k1: 80, w1: 1 };
+const oats = { name: 'rolled oats', qty: 40, unit: 'g', p1: 0.13, f1: 0.1, k1: 3.8, w1: 0.0625 };
+test('whole grains multiply by amount and portion like everything else', () => {
+  near(N.itemTotals(toast).grains, 2);
+  near(N.itemTotals(toast, 0.5).grains, 1);
+  near(N.itemTotals(oats).grains, 2.5);
+  near(N.itemTotals({ ...toast, skip: true }).grains, 0);
+  near(N.entryTotals({ items: [toast, yogurt], portion: 2 }).grains, 4);
+});
+test('a food with no whole-grain number counts as none', () => {
+  near(N.itemTotals(yogurt).grains, 0);
+  near(N.itemTotals({ ...toast, w1: -1 }).grains, 0);
+});
+test('things logged before whole grains were tracked borrow the number from the saved food', () => {
+  const foods = { 'f:toast|slice': { name: 'toast', w1: 1 }, 'f:gone|slice': { w1: 1, deleted: true } };
+  const old = { name: 'toast', key: 'f:toast|slice', qty: 2, p1: 4, f1: 2 };
+  near(N.itemTotals(old, 1, foods).grains, 2);
+  near(N.itemTotals(old).grains, 0, 'no saved foods');
+  near(N.itemTotals({ ...old, key: 'f:gone|slice' }, 1, foods).grains, 0, 'deleted food');
+  near(N.itemTotals({ ...old, w1: 0 }, 1, foods).grains, 0, 'its own number wins, even zero');
+  near(N.entryTotals({ items: [old] }, foods).grains, 2);
+  eq(N.dayTotals([{ date: day, meal: 'breakfast', items: [old] }], day, foods).grains, 2);
+});
+test('whole grains for the day are counted in quarters and reach the goal on what is shown', () => {
+  const at = (w1) => N.dayTotals([{ date: day, meal: 'lunch', items: [{ qty: 1, w1 }] }], day).grains;
+  eq(at(1.9), 2); eq(at(1.8), 1.75); eq(at(0.5), 0.5); eq(at(0), 0);
+  const three = Array.from({ length: 3 }, () => ({ date: day, meal: 'snack', items: [{ qty: 1, w1: 0.667 }] }));
+  eq(N.dayTotals(three, day).grains, 2);
+  eq(N.dayTotals(entries, day).grains, 0);
+  eq(N.fmtQty(1.25), '1¼'); eq(N.fmtQty(0), '0');
+});
+
 test('progress is the share of the goal, capped at full', () => {
   eq(N.progress(20, 40), 0.5);
   eq(N.progress(55, 40), 1);
@@ -98,6 +137,16 @@ test('correcting a total by hand rewrites the per-unit value', () => {
   eq(fixed.estimate, false); eq(fixed.edited, true);
   near(N.setItemTotal(chia, 'fiber', 10).f1, 5);
   near(biscuit.p1, 5, 'original untouched');
+});
+test('calories and whole grains can be corrected by hand without touching the estimate tag', () => {
+  const guess = { ...biscuit, estimate: true };
+  const cals = N.setItemTotal(guess, 'kcal', 400);
+  near(cals.k1, 200); near(N.itemTotals(cals).kcal, 400);
+  eq([cals.estimate, cals.edited], [true, true]);
+  const grains = N.setItemTotal(guess, 'grains', 1);
+  near(grains.w1, 0.5); near(N.itemTotals(grains).grains, 1);
+  eq(grains.estimate, true);
+  near(N.setItemTotal(guess, 'protein', 12).k1, 170, 'other numbers untouched');
 });
 
 test('meal is guessed from the time of day', () => {
@@ -177,7 +226,18 @@ test('daily export has one row per day in range with the goal numbers', () => {
   const rows = N.dailyRows(state, '2026-11-11', '2026-11-12');
   eq(rows.length, 3);
   eq(rows[2].slice(0, 6), [day, 37, 46, 0, 3, 15.2]);
-  eq(rows[2].slice(6), ['1.5', 200, 'yes', 'mild nausea']);
+  eq(rows[0].slice(5, 9), ['Fiber (g)', 'Calories', 'Whole grains (servings)', 'Water (L)']);
+  eq(rows[2].slice(6), [910, 0, '1.5', 200, 'yes', 'mild nausea']);
+});
+test('exports carry calories and whole grains', () => {
+  const s = {
+    entries: { a: { date: day, meal: 'breakfast', items: [toast, { name: 'old oatmeal', key: 'f:oat|cup', qty: 1, unit: 'cup', k1: 150 }], portion: 0.5 } },
+    foods: { 'f:oat|cup': { name: 'oatmeal', w1: 2 } }
+  };
+  eq(N.dailyRows(s, day, day)[1].slice(6, 8), [155, 2]);
+  const food = N.foodRows(s, day, day);
+  eq(food[0].slice(8, 11), ['Calories', 'Whole grains (servings)', 'Source']);
+  eq(food.slice(1).map((r) => [r[4], r[8], r[9]]), [['whole wheat toast', 80, 1], ['old oatmeal', 75, 1]]);
 });
 test('food export lists each food with portion applied, inside the range only', () => {
   const rows = N.foodRows(state, day, day);
@@ -192,6 +252,9 @@ test('the text for pasting into a chat carries the goals and both tables for the
   eq(lines[1].includes('40 g protein per meal') && lines[1].includes('35 g fiber per day'), true);
   eq(lines.filter((l) => l.startsWith(day + ',')).length, 1 + 5, 'one daily row plus five foods');
   eq(text.includes('2026-11-11'), false, 'nothing outside the range');
+  eq(lines[1].includes('calories'), false, 'no calorie goal, no mention');
+  const full = N.exportText({ ...state, settings: { proteinGoal: 40, fiberGoal: 35, calorieGoal: 1600, grainGoal: 2 } }, day, day);
+  eq(full.split(/\r?\n/)[1].endsWith('1600 calories per day, 2 servings of whole grains per day'), true);
 });
 test('CSV quotes commas, quotes and line breaks', () => {
   eq(N.toCsv([['a', 'b,c', 'say "hi"', 'x\ny']]), 'a,"b,c","say ""hi""","x\ny"\r\n');

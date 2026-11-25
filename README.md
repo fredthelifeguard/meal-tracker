@@ -1,11 +1,14 @@
 # Meal Tracker
 
-A personal tracker for two numbers: **protein per meal** (goal 40 g at breakfast, lunch and supper) and
-**fiber per day** (goal 35 g). Snacks are logged and count toward fiber, but not toward the meal targets.
-Both goals can be changed in Settings.
+A personal tracker for four things: **protein per meal** (goal 40 g at breakfast, lunch and supper),
+**fiber per day** (goal 35 g), **calories per day** (goal 1,600) and **whole grains per day** (goal 2 servings).
+Snacks are logged and count toward fiber, calories and whole grains, but not toward the meal targets.
+All four goals can be changed in Settings.
 
-It is built for one person on an iPhone: type what you ate, or tap a go-to or a recent food. There are no
-calories on the main screen, no streaks and no warnings. A missed target is just a number.
+It is built for one person on an iPhone: type what you ate, or tap a go-to or a recent food. The three meal
+plates sit at the top with a whole-grain badge beside them, which lights up blue once the day's servings are
+met. Fiber and calories are bars underneath. There are no streaks and no warnings: a missed target is just a
+number, and going over one simply shows as full.
 
 ## How it is put together
 
@@ -24,8 +27,13 @@ When you type a food, the app sends **only that text** to the lookup service. Th
 3. has Claude pick the matching record and the weight of one unit, and
 4. falls back to a Claude estimate when neither database has the food. Those entries are tagged **estimate**.
 
+Whole grains are the exception: neither database records them, so Claude always estimates the servings from
+what the food is. One serving is 16 g of whole grain, about a slice of whole wheat bread or half a cup of
+cooked oatmeal or brown rice. Foods that count show a **whole grain** tag in the log.
+
 Every answer is saved with your data, so the same food is never looked up twice. Any number can be corrected
-by hand; the correction is remembered for next time.
+by hand; the correction is remembered for next time. Foods saved before whole grains were tracked get their
+whole-grain number filled in quietly the next time the app opens.
 
 ## Run it on this PC
 
@@ -39,14 +47,15 @@ stays in that browser.
 ## Tests
 
 The nutrition math lives in `nutrition.js` and is covered by `tests.js`. With the local server running, open
-<http://localhost:8041/tests.html>. The page title and heading show the result ("All 32 tests passed").
+<http://localhost:8041/tests.html>. The page title and heading show the result ("All 39 tests passed").
 
 ## One-time setup
 
 ### 1. Lookup service (Cloudflare)
 
 The Worker `meal-tracker-lookup` runs the code in `worker/worker.js`. To change it, open the Worker in the
-Cloudflare dashboard, choose **Edit code**, paste the file and **Deploy**.
+Cloudflare dashboard, choose **Edit code**, paste the file and **Deploy**. The app keeps working against an
+older copy of the Worker, but whole grains are only counted once the current one is deployed.
 
 It needs three secrets under **Settings > Variables and Secrets** (type **Secret**):
 
@@ -91,7 +100,8 @@ Open the published address in Safari, tap **Share > Add to Home Screen**, then o
 
 - **Log**: pick the meal (it guesses from the time of day), then type a food or tap a go-to or recent food.
 - **Adjust**: tap anything in the log to change the portion (half, full, double), leave out or swap an
-  ingredient for that day only, move it to another meal, or correct the numbers.
+  ingredient for that day only, move it to another meal, or correct the numbers (protein, fiber, calories and
+  whole-grain servings).
 - **Go-tos**: build one on the Go-tos tab by adding ingredients with amounts, or tap **Save as go-to** next to
   any meal you have logged. Editing a go-to never changes what you already logged.
 - **Also track**: water, meal times, portion notes, weight, medication dose day and side effects are off by

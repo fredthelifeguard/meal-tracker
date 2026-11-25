@@ -63,7 +63,8 @@ b { font-weight: 600; }
 .day-btn:active:not(:disabled) { background: var(--chip); }
 
 /* ---------------------------------------------------------------- plates */
-.plates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.meals { display: grid; grid-template-columns: minmax(0, 1fr) 56px; gap: 10px; }
+.plates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .plate {
   border: 0; background: transparent; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
@@ -75,14 +76,36 @@ b { font-weight: 600; }
 .ring-track { fill: none; stroke: var(--track); stroke-width: 7; }
 .ring-fill { fill: none; stroke: var(--orange); stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .5s ease, stroke .3s; }
 .plate.met .ring-fill { stroke: var(--blue); }
-.plate-num { position: relative; font: 700 clamp(30px, 10.5vw, 44px)/1 var(--display); letter-spacing: -.03em; }
+.plate-num { position: relative; font: 700 clamp(26px, 8.8vw, 40px)/1 var(--display); letter-spacing: -.03em; }
 .plate.met .plate-num { color: var(--blue); }
-.plate-of { position: relative; font-size: 14px; color: var(--muted); margin-top: 3px; }
-.plate-name { font-weight: 500; font-size: 16px; padding: 2px 10px 3px; border-radius: 999px; }
+.plate-of { position: relative; font-size: clamp(12px, 3.4vw, 14px); color: var(--muted); margin-top: 3px; }
+.plate-name { font-weight: 500; font-size: clamp(14px, 4.1vw, 16px); line-height: 23px; padding: 2px 10px 3px; border-radius: 999px; }
 .plate[aria-pressed="true"] .plate-name { background: var(--blue); color: var(--on-blue); font-weight: 600; }
 
+/* The whole-grain badge stands beside the plates: quiet until the day's servings are met, then blue. */
+.grain { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.grain-dish {
+  flex: 1; width: 100%; border-radius: 999px; background: transparent; color: var(--muted);
+  border: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  transition: background .3s, color .3s, border-color .3s, box-shadow .3s;
+}
+.grain-dish svg { width: 26px; height: 26px; fill: currentColor; opacity: .7; margin-bottom: 2px; }
+.grain-num { font: 700 22px/1 var(--display); color: var(--ink); letter-spacing: -.02em; }
+.grain-of { font-size: 12px; line-height: 1.2; }
+.grain-name { font-weight: 500; font-size: 14px; line-height: 23px; padding: 2px 0 3px; }
+.grain.met .grain-dish {
+  background: var(--blue); border: 2px solid var(--blue); color: var(--on-blue);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 24%, transparent), var(--shadow);
+}
+.grain.met .grain-dish svg { opacity: 1; }
+.grain.met .grain-num { color: var(--on-blue); }
+.grain.met .grain-name { color: var(--blue); font-weight: 600; }
+
 /* ----------------------------------------------------------------- fiber */
+/* Fiber and calories share this bar. */
 .fiber { margin-top: 22px; }
+.fiber + .fiber { margin-top: 16px; }
 .fiber-line { display: flex; align-items: baseline; justify-content: space-between; }
 .fiber-name { font: 700 22px/1.2 var(--display); }
 .fiber-num { color: var(--muted); font-size: 17px; }
@@ -136,9 +159,9 @@ input::placeholder { color: var(--muted); opacity: .8; }
 
 /* ------------------------------------------------------------------ log */
 .group { margin-top: 26px; }
-.group-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
-.group-head h2 { font: 700 22px/1.2 var(--display); }
-.group-sum { color: var(--muted); font-size: 15px; flex: 1; }
+.group-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
+.group-head h2 { font: 700 22px/1.2 var(--display); flex: 1; }
+.group-sum { color: var(--muted); font-size: 15px; flex: none; width: 100%; order: 3; margin: -4px 0 4px; }
 .rows { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; margin-top: 6px; }
 .rows.spaced { margin-top: 0; }
 .rows li + li { border-top: 1px solid var(--line); }
@@ -155,6 +178,7 @@ input::placeholder { color: var(--muted); opacity: .8; }
   font-size: 12.5px; font-weight: 600; color: var(--muted); border: 1.5px dashed var(--muted); border-radius: 999px;
   padding: 0 8px; line-height: 1.5; white-space: nowrap;
 }
+.tag.grain { border: 1.5px solid transparent; background: var(--chip); color: var(--ink); }
 .empty { color: var(--muted); text-align: center; padding: 34px 20px; }
 .hint { color: var(--muted); font-size: 15px; }
 .hint.center { text-align: center; margin-top: 18px; }
@@ -169,6 +193,8 @@ input::placeholder { color: var(--muted); opacity: .8; }
 .field.inline > span { font-size: 17px; color: var(--ink); }
 .field.inline input { width: 104px; text-align: right; }
 .field.inline input[type="time"] { width: 150px; }
+.field.inline > .unit { width: 28px; flex: none; }
+.goal-hint { margin-top: 10px; }
 .grow { flex: 1; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .switch { display: flex; align-items: center; gap: 12px; min-height: 58px; border-top: 1px solid var(--line); cursor: pointer; }
@@ -211,7 +237,7 @@ input::placeholder { color: var(--muted); opacity: .8; }
 .sheet-head { display: flex; align-items: flex-end; gap: 12px; }
 .sheet-head h2 { flex: 1; font: 700 26px/1.15 var(--display); letter-spacing: -.01em; align-self: center; overflow-wrap: anywhere; }
 .sheet-head .field { margin-top: 0; }
-.sheet-totals { display: flex; gap: 22px; margin-top: 12px; color: var(--muted); }
+.sheet-totals { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 12px; color: var(--muted); }
 .sheet-totals b { font: 700 28px/1 var(--display); color: var(--ink); letter-spacing: -.02em; }
 .items { display: grid; gap: 10px; }
 .item { background: var(--surface); border-radius: 16px; padding: 12px 14px 4px; box-shadow: var(--shadow); }
@@ -225,6 +251,9 @@ input::placeholder { color: var(--muted); opacity: .8; }
 .num span { font-size: 13px; color: var(--muted); }
 .num input { padding: 0 24px 0 10px; min-height: 46px; text-align: right; }
 .num i { position: absolute; right: 10px; bottom: 12px; font-style: normal; color: var(--muted); font-size: 15px; }
+.item-grid.pair { grid-template-columns: 1fr 1fr; }
+.num.cal input { padding-right: 40px; }
+.num.plain input { padding-right: 10px; }
 .item-acts { display: flex; gap: 14px; margin-top: 2px; min-height: 8px; }
 .sheet .add-form { margin-top: 12px; }
 .sheet .item .add-form { margin-top: 0; }
